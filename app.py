@@ -480,6 +480,8 @@ if "last_input" not in st.session_state:
     st.session_state.last_input = None
 if "last_prediction" not in st.session_state:
     st.session_state.last_prediction = None
+if "prediction_errors" not in st.session_state:
+    st.session_state.prediction_errors = {}
 
 # ============================================================
 # Helpers
@@ -541,19 +543,76 @@ def build_row(skin_type, colors, size_cm2, tattoo_age_years, tattoo_type, laser_
     row.setdefault("laser_type_sanitized", laser_type)
     return row
 
+def get_model_feature_names(model):
+    """Return feature names expected by this specific trained model/pipeline."""
+    if hasattr(model, "feature_names_in_"):
+        return list(model.feature_names_in_)
+    if hasattr(model, "named_steps"):
+        for step in model.named_steps.values():
+            if hasattr(step, "feature_names_in_"):
+                return list(step.feature_names_in_)
+    return FEATURES
+
+def value_for_feature(row, feature_name):
+    """Map app inputs to the exact feature names used during training."""
+    f = str(feature_name)
+    key = f.lower().strip()
+
+    # Skin type alternatives
+    if key in ["skin_type", "skin type", "fitzpatrick", "fitzpatrick_scale"]:
+        return row.get("skin_type")
+
+    # Color alternatives
+    if key in ["color", "colors", "tattoo_color", "tattoo color", "ink_color", "ink color"]:
+        return row.get("tattoo_color", row.get("colors"))
+
+    # Size alternatives
+    if key in ["size", "tattoo_size", "tattoo size", "size_cm2", "tattoo_size_cm2", "tattoo area", "area"]:
+        return float(row.get("size_cm2", 0))
+
+    # Age alternatives
+    if key in ["age", "tattoo_age", "tattoo age", "tattoo_age_years", "tattoo age years"]:
+        return float(row.get("tattoo_age_years", 0))
+
+    # Tattoo type alternatives
+    if key in ["type", "tattoo_type", "tattoo type"]:
+        return row.get("tattoo_type")
+
+    # Laser type alternatives
+    if key in ["laser_type", "laser type", "laser_type_sanitized", "device", "device_type", "device type"]:
+        return row.get("laser_type_sanitized", row.get("laser_type"))
+
+    # Repetition rate alternatives
+    if key in ["repetition_rate", "repetition rate", "repetition_rate_hz", "repetition rate hz", "hz"]:
+        return float(row.get("repetition_rate_hz", 0))
+
+    # Exact match if present
+    if f in row:
+        return row[f]
+
+    return np.nan
+
 def predict_outputs(row):
-    X = pd.DataFrame([row], columns=FEATURES)
     preds = {}
+    errors = {}
+
     for target, model in MODELS.items():
+        target_name = normalize_target_name(target)
         try:
+            model_features = get_model_feature_names(model)
+            model_row = {feature: value_for_feature(row, feature) for feature in model_features}
+            X = pd.DataFrame([model_row], columns=model_features)
+
             value = model.predict(X)[0]
-            # Some regressors may return a one-element array.
             if isinstance(value, (list, tuple, np.ndarray)):
                 value = np.asarray(value).ravel()[0]
-            preds[normalize_target_name(target)] = float(value)
+            preds[target_name] = float(value)
         except Exception as exc:
-            # Keep the app running and show available outputs instead of failing fully.
-            preds[normalize_target_name(target)] = np.nan
+            preds[target_name] = np.nan
+            errors[target_name] = str(exc)
+
+    # Save diagnostic information so the UI can show it only when needed.
+    st.session_state.prediction_errors = errors
     return preds
 
 def get_prediction_value(preds, possible_names):
