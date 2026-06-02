@@ -915,7 +915,7 @@ elif st.session_state.view == "prediction":
 
     skin_options = safe_options(OPTIONS.get("skin_type", []), ["II", "III", "IV", "V", "VI"])
     color_options = clean_color_options(OPTIONS.get("colors", OPTIONS.get("tattoo_color", [])))
-    tattoo_type_options = safe_options(OPTIONS.get("tattoo_type", []), ["simple", "complex", "amateur", "professional"])
+    tattoo_type_options = ["simple", "complex"]
     laser_type_options = safe_options(OPTIONS.get("laser_type", OPTIONS.get("laser_type_sanitized", [])), ["Q-switched Nd:YAG", "Picosecond", "Alexandrite", "Ruby"])
 
     left, right = st.columns([1, 1], gap="large")
