@@ -60,18 +60,20 @@ except Exception as e:
 metadata = bundle.get("metadata", {}) if isinstance(bundle, dict) else {}
 
 def normalize_target_name(name):
-    name = str(name)
+    """Return the display name used by the UI regardless of how the target was saved."""
+    raw = str(name).strip()
+    key = raw.lower().replace(" ", "_").replace("-", "_")
     aliases = {
-        "Pulse_Duration": "Pulse Duration",
-        "pulse_duration": "Pulse Duration",
-        "PulseDuration": "Pulse Duration",
-        "Total_Pulses": "Total Pulses",
-        "total_pulses": "Total Pulses",
-        "TotalPulses": "Total Pulses",
         "wavelength": "Wavelength",
         "energy": "Energy",
+        "pulse_duration": "Pulse Duration",
+        "pulseduration": "Pulse Duration",
+        "pulse_duration_ns": "Pulse Duration",
+        "total_pulses": "Total Pulses",
+        "totalpulses": "Total Pulses",
+        "total_pulse": "Total Pulses",
     }
-    return aliases.get(name, name)
+    return aliases.get(key, raw)
 
 def extract_models(bundle):
     models = {}
@@ -79,7 +81,15 @@ def extract_models(bundle):
         if "selected_models" in bundle and isinstance(bundle["selected_models"], dict):
             for target, obj in bundle["selected_models"].items():
                 if isinstance(obj, dict):
-                    est = obj.get("estimator") or obj.get("model") or obj.get("pipeline")
+                    est = (
+                        obj.get("estimator")
+                        or obj.get("model")
+                        or obj.get("pipeline")
+                        or obj.get("best_estimator")
+                        or obj.get("best_model")
+                        or obj.get("selected_model")
+                        or obj.get("trained_model")
+                    )
                 else:
                     est = obj
                 if est is not None:
@@ -255,10 +265,10 @@ def add_session(patient_id, session_number, row, preds):
             row.get("tattoo_type"),
             row.get("laser_type") or row.get("laser_type_sanitized"),
             float(row.get("repetition_rate_hz", 0) or 0),
-            float(preds.get("Wavelength", np.nan)),
-            float(preds.get("Energy", np.nan)),
-            float(preds.get("Pulse Duration", np.nan)),
-            float(preds.get("Total Pulses", np.nan)),
+            float(get_prediction_value(preds, ["Wavelength", "wavelength", "WAVELENGTH"])),
+            float(get_prediction_value(preds, ["Energy", "energy", "ENERGY"])),
+            float(get_prediction_value(preds, ["Pulse Duration", "Pulse_Duration", "pulse_duration", "PULSE_DURATION"])),
+            float(get_prediction_value(preds, ["Total Pulses", "Total_Pulses", "total_pulses", "TOTAL_PULSES"])),
             datetime.now().strftime("%Y-%m-%d %H:%M"),
         ),
     )
@@ -535,8 +545,30 @@ def predict_outputs(row):
     X = pd.DataFrame([row], columns=FEATURES)
     preds = {}
     for target, model in MODELS.items():
-        preds[target] = float(model.predict(X)[0])
+        try:
+            value = model.predict(X)[0]
+            # Some regressors may return a one-element array.
+            if isinstance(value, (list, tuple, np.ndarray)):
+                value = np.asarray(value).ravel()[0]
+            preds[normalize_target_name(target)] = float(value)
+        except Exception as exc:
+            # Keep the app running and show available outputs instead of failing fully.
+            preds[normalize_target_name(target)] = np.nan
     return preds
+
+def get_prediction_value(preds, possible_names):
+    """Read a prediction even if target names use spaces, underscores, or different case."""
+    normalized = {normalize_target_name(k): v for k, v in preds.items()}
+    for name in possible_names:
+        canonical = normalize_target_name(name)
+        if canonical in normalized:
+            try:
+                value = float(normalized[canonical])
+                if np.isfinite(value):
+                    return value
+            except Exception:
+                pass
+    return np.nan
 
 def show_result_card(icon, label, value, unit):
     st.markdown(f"""
@@ -773,10 +805,21 @@ elif st.session_state.view == "prediction":
 
     if st.session_state.last_prediction is not None:
         preds = st.session_state.last_prediction
-        w = int(round(preds.get("Wavelength", np.nan))) if np.isfinite(preds.get("Wavelength", np.nan)) else "N/A"
-        e = round(preds.get("Energy", np.nan), 3) if np.isfinite(preds.get("Energy", np.nan)) else "N/A"
-        pdur = round(preds.get("Pulse Duration", np.nan), 4) if np.isfinite(preds.get("Pulse Duration", np.nan)) else "N/A"
-        tp = int(round(max(preds.get("Total Pulses", np.nan), 0))) if np.isfinite(preds.get("Total Pulses", np.nan)) else "N/A"
+        wavelength_value = get_prediction_value(preds, ["Wavelength", "wavelength", "WAVELENGTH"])
+        energy_value = get_prediction_value(preds, ["Energy", "energy", "ENERGY"])
+        pulse_duration_value = get_prediction_value(preds, ["Pulse Duration", "Pulse_Duration", "pulse_duration", "PULSE_DURATION"])
+        total_pulses_value = get_prediction_value(preds, ["Total Pulses", "Total_Pulses", "total_pulses", "TOTAL_PULSES"])
+
+        w = int(round(wavelength_value)) if np.isfinite(wavelength_value) else "N/A"
+        e = round(energy_value, 3) if np.isfinite(energy_value) else "N/A"
+        pdur = round(pulse_duration_value, 4) if np.isfinite(pulse_duration_value) else "N/A"
+        tp = int(round(max(total_pulses_value, 0))) if np.isfinite(total_pulses_value) else "N/A"
+
+        # Temporary transparent diagnostic: appears only if any main output is missing.
+        if "N/A" in [w, e, pdur, tp]:
+            with st.expander("Technical note: available prediction keys", expanded=False):
+                st.write(list(preds.keys()))
+                st.write(preds)
 
         st.markdown(f'<div class="card"><div class="section-title">{T["recommended"]}</div>', unsafe_allow_html=True)
         r1, r2 = st.columns(2)
