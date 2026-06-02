@@ -1,0 +1,5 @@
+target,r2_holdout,mae_holdout,model
+Wavelength_nm,1.0,0.0,ExtraTreesRegressor
+Energy_Jcm2,0.916457965217361,0.4703379310344827,ExtraTreesRegressor
+Pulse_Duration_ns,1.0,0.0,ExtraTreesRegressor
+Total_Pulses,0.6052335457658358,396.2817670025378,RandomForestRegressor

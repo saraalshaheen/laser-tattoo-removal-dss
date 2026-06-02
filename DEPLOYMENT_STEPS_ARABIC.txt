@@ -1,0 +1,29 @@
+خطوات رفع التطبيق على GitHub وتشغيله كرابط دائم:
+
+1. فك ضغط ملف laser_dss_final_complete_package.zip.
+2. افتح GitHub وسجل الدخول.
+3. اضغط New repository.
+4. اكتب اسم المستودع مثلا: laser-tattoo-removal-dss.
+5. يفضل اختيار Private في البداية.
+6. بعد إنشاء المستودع اضغط Add file ثم Upload files.
+7. ارفع محتويات المجلد وليس ملف zip نفسه:
+   - app.py
+   - requirements.txt
+   - README.md
+   - .gitignore
+   - .streamlit/config.toml
+   - models/laser_dss_model_bundle.joblib
+   - data/sample_input_cases.csv
+   - model_metrics_internal_holdout.csv
+8. اضغط Commit changes.
+9. افتح Streamlit Community Cloud.
+10. اختر New app.
+11. اختر مستودع GitHub الذي رفعت إليه التطبيق.
+12. اجعل Main file path = app.py.
+13. اضغط Deploy.
+
+ملاحظات مهمة:
+- التطبيق لا يعيد التدريب عند التشغيل.
+- التطبيق يقرأ النموذج المحفوظ داخل models/laser_dss_model_bundle.joblib.
+- بيانات المرضى والجلسات تحفظ في قاعدة SQLite داخل التطبيق كنسخة Prototype.
+- في النسخة السريرية الحقيقية مستقبلا يفضل استخدام قاعدة بيانات سحابية آمنة.

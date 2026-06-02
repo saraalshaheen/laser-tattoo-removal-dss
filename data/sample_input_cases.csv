@@ -1,0 +1,9 @@
+skin_type,colors,size_cm2,tattoo_age_years,tattoo_type,laser_type,repetition_rate_hz
+II,black,10,5,professional,Q-switched Nd:YAG,1
+II,black,15,3,professional,Q-switched Nd:YAG,1
+II,red,8,5,professional,Q-switched Nd:YAG 532nm,1
+II,blue,10,4,professional,Alexandrite,1
+II,"black,red,blue",16,5,professional,Q-switched Nd:YAG + 532nm,1
+II,green,10,6,professional,Alexandrite,1
+II,black,12,4,professional,Picosecond,5
+II,"blue,green",10,5,professional,Picosecond Alexandrite,5

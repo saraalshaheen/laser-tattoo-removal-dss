@@ -1,0 +1,5 @@
+Application-Based Smart Guideline System
+
+The practical component of this thesis was implemented as a web-based decision-support prototype for laser tattoo removal. The application was developed using Python and Streamlit and connected to the saved machine-learning model bundle. The trained models operate in the background and are not exposed to the clinical user. The user enters patient, tattoo, and device-aware information, including skin type, tattoo color, tattoo size, tattoo age, tattoo type, laser type, and repetition rate. The system then generates four guideline-support outputs: wavelength, energy, pulse duration, and total pulses.
+
+The application also includes patient and treatment-session management to demonstrate how the proposed system could fit into a practical clinical workflow. Patient records and session outputs can be saved and exported. These functions are presented as prototype-level features and can be extended in future work using a secure clinical database. The system is not intended to replace professional medical judgment. All recommendations must be reviewed by a dermatologist or laser specialist before clinical application.
