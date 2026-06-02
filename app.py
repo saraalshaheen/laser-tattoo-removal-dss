@@ -30,55 +30,131 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
 # Load trained model bundle
+# The model is downloaded from GitHub Release because it is too large for normal GitHub upload.
 # ============================================================
-@st.cache_resource
+import requests
+
+MODEL_URL = "https://github.com/saraalshaheen/laser-tattoo-removal-dss/releases/download/v1.0/laser_dss_model_bundle.joblib"
+MODEL_PATH = BASE_DIR / "models" / "laser_dss_model_bundle.joblib"
+
+@st.cache_resource(show_spinner=False)
 def load_bundle():
-    for path in MODEL_PATHS:
-        if path.exists():
-            return joblib.load(path), path
-    raise FileNotFoundError("No model bundle was found in models/ or app root.")
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    if not MODEL_PATH.exists():
+        with st.spinner("Downloading trained model bundle from GitHub Release..."):
+            response = requests.get(MODEL_URL, stream=True, timeout=300)
+            response.raise_for_status()
+
+            with open(MODEL_PATH, "wb") as f:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+
+    return joblib.load(MODEL_PATH)
+
+def normalize_target_name(name):
+    name = str(name)
+    mapping = {
+        "Pulse_Duration": "Pulse Duration",
+        "pulse_duration": "Pulse Duration",
+        "pulse_duration_ns": "Pulse Duration",
+        "Total_Pulses": "Total Pulses",
+        "total_pulses": "Total Pulses",
+        "Wavelength": "Wavelength",
+        "Energy": "Energy",
+    }
+    return mapping.get(name, name.replace("_", " "))
 
 try:
-    bundle, loaded_model_path = load_bundle()
-except Exception as e:
-    st.error("The trained model bundle could not be loaded.")
-    st.info("Expected file: models/laser_dss_model_bundle.joblib")
-    st.exception(e)
-    st.stop()
+    bundle = load_bundle()
+    loaded_model_path = MODEL_PATH
 
-# Support both bundle structures used during development
-if "models" in bundle:
-    MODELS = bundle.get("models", {})
-    FEATURES = bundle.get("features", [])
-    TARGETS = bundle.get("targets", list(MODELS.keys()))
-    OPTIONS = bundle.get("options", {})
-    METRICS = bundle.get("metrics", [])
-else:
-    selected_models = bundle.get("selected_models", {})
+    metadata = bundle.get("metadata", {}) if isinstance(bundle, dict) else {}
+
+    # The training code saved the final models in selected_models.
+    selected_models = bundle.get("selected_models", {}) if isinstance(bundle, dict) else {}
+
     MODELS = {}
-    for target, info in selected_models.items():
-        MODELS[target] = info.get("estimator") or info.get("pipeline")
-    metadata = bundle.get("metadata", {})
-    FEATURES = metadata.get("main_features", [])
-    TARGETS = metadata.get("outputs", list(MODELS.keys()))
+    model_features = None
+
+    for target, obj in selected_models.items():
+        target_ui = normalize_target_name(target)
+
+        if isinstance(obj, dict):
+            estimator = (
+                obj.get("estimator")
+                or obj.get("pipeline")
+                or obj.get("model")
+                or obj.get("best_estimator")
+            )
+            if model_features is None:
+                model_features = obj.get("features")
+        else:
+            estimator = obj
+
+        if estimator is not None:
+            MODELS[target_ui] = estimator
+
+    # Fallback for alternative bundle structures
+    if not MODELS and isinstance(bundle, dict) and "models" in bundle:
+        for target, estimator in bundle["models"].items():
+            MODELS[normalize_target_name(target)] = estimator
+
+    if not MODELS:
+        st.error("The model bundle was loaded, but no trained models were found inside it.")
+        st.stop()
+
+    FEATURES = (
+        metadata.get("main_features")
+        or metadata.get("features")
+        or model_features
+        or [
+            "skin_type",
+            "tattoo_color",
+            "tattoo_type",
+            "size_cm2",
+            "tattoo_age_years",
+            "laser_type_sanitized",
+            "repetition_rate_hz",
+        ]
+    )
+
+    # Options used by the interface
     OPTIONS = {
         "skin_type": metadata.get("skin_type_options", []),
-        "colors": metadata.get("tattoo_color_options", []),
+        "colors": metadata.get("tattoo_color_options", metadata.get("color_options", [])),
         "tattoo_type": metadata.get("tattoo_type_options", []),
         "laser_type": metadata.get("laser_type_options", []),
     }
-    METRICS = bundle.get("metrics", bundle.get("final_metrics_df", []))
 
-# Standard target aliases for display
-TARGET_ALIASES = {
-    "Wavelength_nm": "Wavelength",
-    "Wavelength": "Wavelength",
-    "Energy_Jcm2": "Energy",
-    "Energy": "Energy",
-    "Pulse_Duration_ns": "Pulse Duration",
-    "Pulse_Duration": "Pulse Duration",
-    "Total_Pulses": "Total Pulses",
-}
+    TARGETS = list(MODELS.keys())
+    TARGET_ALIASES = {
+        "Pulse_Duration": "Pulse Duration",
+        "Total_Pulses": "Total Pulses",
+        "Pulse Duration": "Pulse Duration",
+        "Total Pulses": "Total Pulses",
+        "Wavelength": "Wavelength",
+        "Energy": "Energy",
+    }
+
+    # Optional metrics table if available
+    METRICS = []
+    if isinstance(bundle, dict):
+        if "final_metrics_df" in bundle:
+            try:
+                METRICS = bundle["final_metrics_df"].to_dict("records")
+            except Exception:
+                METRICS = []
+        elif "metrics" in bundle:
+            METRICS = bundle["metrics"]
+
+except Exception as e:
+    st.error("تعذر تحميل حزمة النموذج المدرّب.")
+    st.info(f"الملف المتوقع: {MODEL_PATH}")
+    st.error("لم يتم العثور على حزمة النموذج أو حدث خطأ أثناء تحميلها من GitHub Release.")
+    st.exception(e)
+    st.stop()
 
 # ============================================================
 # SQLite helpers
@@ -447,6 +523,25 @@ def export_prediction_report(patient, row, preds, T):
     with pd.ExcelWriter(out, engine="xlsxwriter") as writer:
         df.to_excel(writer, sheet_name="Prediction_Report", index=False)
     return out.getvalue()
+
+
+# ============================================================
+# Session state defaults
+# ============================================================
+if "view" not in st.session_state:
+    st.session_state.view = "dashboard"
+
+if "language" not in st.session_state:
+    st.session_state.language = "English"
+
+if "selected_patient_id" not in st.session_state:
+    st.session_state.selected_patient_id = None
+
+if "last_input" not in st.session_state:
+    st.session_state.last_input = None
+
+if "last_prediction" not in st.session_state:
+    st.session_state.last_prediction = None
 
 # ============================================================
 # Sidebar
